@@ -1,156 +1,886 @@
-<!doctype html>
+<?php
+require_once __DIR__ . '/project_config.php';
+require_once __DIR__ . '/site_footer.php';
+require_once __DIR__ . '/site_layout.php';
+
+$configFile = __DIR__ . '/line_config.php';
+$config = null;
+if (file_exists($configFile)) {
+    require_once $configFile;
+    $config = smsNormalizeLineConfig(getLineConfig());
+}
+$config = $config ?: smsNormalizeLineConfig([]);
+$host = smsNormalizeHost($_SERVER['HTTP_HOST'] ?? '');
+$isRootPortalHost = in_array($host, ['sms.88fk.net', '192.168.31.222', '127.0.0.1', 'localhost'], true);
+if (!$isRootPortalHost) {
+    $project = smsGetProjectByHost($config);
+    if ($project && !empty($project['key'])) {
+        $entryFile = (($project['product'] ?? '') === 'escapefromtarkov') ? 'index.php' : 'verify.php';
+        $projectEntry = __DIR__ . '/' . basename($project['key']) . '/' . $entryFile;
+        if (is_file($projectEntry)) {
+            require $projectEntry;
+            exit;
+        }
+    }
+}
+$projects = array_values(array_filter($config['projects'], fn($project) => !empty($project['enabled'])));
+usort($projects, function ($a, $b) {
+    $sortA = (int)($a['sort_order'] ?? 0);
+    $sortB = (int)($b['sort_order'] ?? 0);
+    if ($sortA === $sortB) {
+        return 0;
+    }
+    if ($sortA === 0) {
+        return 1;
+    }
+    if ($sortB === 0) {
+        return -1;
+    }
+    return $sortA <=> $sortB;
+});
+$memberConfig = smsLoadMemberConfig(__DIR__ . '/member_config.php');
+$memberProjects = array_values(array_filter($memberConfig['projects'], fn($project) => !empty($project['show_home'])));
+$portalDescription = '88FK手机验证平台提供ChatGPT/Codex、Telegram、Google、Claude、Cursor、逃离塔科夫等账号手机验证服务，支持自助输入卡密、在线获取手机号、自动接收短信验证码、多线路切换和视频教程指引，同时提供GPT、Claude、SuperGrok等会员充值入口，适合账号注册、登录验证、安全检查和会员续费场景。';
+
+function portalProjectUrl(array $project): string {
+    return smsProjectUrl($project);
+}
+
+function portalWebpImage(string $image): string {
+    if ($image === '' || stripos($image, '/assets/brand-logos/') !== 0) {
+        return $image;
+    }
+    $webpImage = preg_replace('/\.png$/i', '.webp', $image);
+    if ($webpImage && is_file(__DIR__ . $webpImage)) {
+        return $webpImage;
+    }
+    return $image;
+}
+
+function portalProjectMeta(array $project): array {
+    $product = strtolower((string)($project['product'] ?? $project['key'] ?? ''));
+    $key = strtolower((string)($project['key'] ?? $product));
+    $meta = [
+        'escapefromtarkov' => ['image' => '/assets/brand-logos/escapefromtarkov.webp', 'desc' => '账号短信验证'],
+        'openai' => ['image' => '/assets/brand-logos/openai.webp', 'desc' => 'ChatGPT / Codex 验证'],
+        'telegram' => ['image' => '/assets/brand-logos/tg.webp', 'desc' => '账号短信验证'],
+        'google' => ['image' => '/assets/brand-logos/YouTube.webp', 'desc' => 'Google / YouTube 验证'],
+        'youtube' => ['image' => '/assets/brand-logos/YouTube.webp', 'desc' => '账号短信验证'],
+        'facebook' => ['image' => '/assets/brand-logos/Facebook.webp', 'desc' => '账号短信验证'],
+        'instagram' => ['image' => '/assets/brand-logos/ins.webp', 'desc' => '账号短信验证'],
+        'x' => ['image' => '/assets/brand-logos/X.webp', 'desc' => '账号短信验证'],
+        'twitter' => ['image' => '/assets/brand-logos/X.webp', 'desc' => '账号短信验证'],
+        'whatsapp' => ['image' => '/assets/brand-logos/whatsapp.webp', 'desc' => '账号短信验证'],
+        'tiktok' => ['image' => '/assets/brand-logos/tiktok.webp', 'desc' => '账号短信验证'],
+        'claude' => ['image' => '/assets/brand-logos/claude.webp', 'desc' => 'Claude 账号验证'],
+        'cursoor' => ['image' => '/assets/brand-logos/cursor-logo.webp', 'desc' => 'Cursor 账号验证'],
+        'cursor' => ['image' => '/assets/brand-logos/cursor-logo.webp', 'desc' => 'Cursor 账号验证'],
+    ];
+    if ($key === 'google' && stripos((string)($project['name'] ?? ''), 'youtube') !== false) {
+        $projectMeta = $meta['youtube'];
+    } else {
+        $projectMeta = $meta[$product] ?? $meta[$key] ?? ['image' => '', 'desc' => '短信验证入口'];
+    }
+    if (!empty($project['icon'])) {
+        $projectMeta['image'] = portalWebpImage($project['icon']);
+    }
+    $cardDescription = trim((string)($project['card_description'] ?? ''));
+    if ($cardDescription !== '') {
+        $projectMeta['desc'] = $cardDescription;
+    }
+    return $projectMeta;
+}
+?>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>88FK OTP | 企业短信验证码与合规验证服务</title>
-  <meta name="description" content="88FK OTP 面向企业自有业务提供短信验证码、验证流程说明、风控策略和合规使用指南。">
-  <link rel="stylesheet" href="styles.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>88FK手机验证平台</title>
+    <meta name="description" content="<?php echo htmlspecialchars($portalDescription); ?>">
+    <link rel="canonical" href="https://sms.88fk.net/">
+    <meta property="og:url" content="https://sms.88fk.net/">
+    <meta property="og:description" content="<?php echo htmlspecialchars($portalDescription); ?>">
+    <?php smsRenderPortalBaseStyles(); ?>
+    <style>
+        .hero {
+            margin-bottom: 18px;
+        }
+
+        h1 {
+            max-width: 760px;
+            margin: 0;
+            font-size: clamp(30px, 4vw, 50px);
+            line-height: 1.08;
+            font-weight: 900;
+            letter-spacing: 0;
+        }
+
+        .hero-highlight {
+            color: #93c5fd;
+            text-shadow: 0 0 26px rgba(59, 130, 246, .30);
+        }
+
+        .hero p {
+            max-width: 520px;
+            margin: 16px 0 0;
+            color: var(--muted);
+            font-size: 17px;
+            line-height: 1.65;
+            font-weight: 700;
+        }
+
+        .hero p strong {
+            color: #e2e8f0;
+            font-weight: 900;
+        }
+
+        .section-hero {
+            margin: 22px 0 12px;
+        }
+
+        .section-hero h2 {
+            max-width: 760px;
+            margin: 0;
+            color: var(--text);
+            font-size: clamp(28px, 3.4vw, 42px);
+            line-height: 1.1;
+            font-weight: 900;
+            letter-spacing: 0;
+        }
+
+        .section-hero p {
+            max-width: 620px;
+            margin: 14px 0 0;
+            color: var(--muted);
+            font-size: 16px;
+            line-height: 1.65;
+            font-weight: 700;
+        }
+
+        .project-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .project-card {
+            display: block;
+            min-width: 0;
+            aspect-ratio: 3 / 1;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background:
+                radial-gradient(circle at top left, rgba(96, 165, 250, .18), transparent 42%),
+                linear-gradient(180deg, rgba(15, 23, 42, .92), rgba(15, 23, 42, .72));
+            box-shadow: 0 10px 24px rgba(0, 0, 0, .20);
+            transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+        }
+
+        .project-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--line-strong);
+            box-shadow: 0 18px 36px rgba(30, 64, 175, .30);
+        }
+
+        .project-inner {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            min-width: 0;
+            gap: 10px;
+            padding: 8px;
+        }
+
+        .project-icon {
+            flex: 0 0 auto;
+            width: 52px;
+            height: 52px;
+            border-radius: 8px;
+            object-fit: cover;
+            background: #0f172a;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, .10);
+        }
+
+        .project-fallback {
+            display: grid;
+            place-items: center;
+            color: #fff;
+            font-size: 18px;
+            font-weight: 900;
+        }
+
+        .project-copy {
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+
+        .project-title {
+            overflow: hidden;
+            margin: 0;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 18px;
+            line-height: 1;
+            font-weight: 900;
+        }
+
+        .project-desc {
+            overflow: hidden;
+            margin: 4px 0 0;
+            color: var(--muted);
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+            line-height: 1;
+            font-weight: 700;
+        }
+
+        .project-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 5px;
+            color: #93c5fd;
+            font-size: 12px;
+            line-height: 1;
+            font-weight: 900;
+        }
+
+        .project-action-text {
+            display: inline-flex;
+            align-items: center;
+            min-width: 0;
+            gap: 4px;
+            white-space: nowrap;
+        }
+
+        .project-card:hover .project-action-text span {
+            transform: translateX(2px);
+        }
+
+        .project-action-text span {
+            transition: transform .18s ease;
+        }
+
+        .member-card {
+            position: relative;
+        }
+
+        .member-card.is-disabled {
+            cursor: default;
+            opacity: .78;
+        }
+
+        .member-card.is-disabled:hover {
+            transform: none;
+            border-color: var(--line);
+            box-shadow: 0 10px 24px rgba(0, 0, 0, .20);
+        }
+
+        .member-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            z-index: 1;
+            display: inline-flex;
+            align-items: center;
+            min-height: 22px;
+            padding: 0 8px;
+            border: 1px solid rgba(52, 211, 153, .30);
+            border-radius: 999px;
+            background: rgba(52, 211, 153, .10);
+            color: #bbf7d0;
+            font-size: 11px;
+            font-weight: 900;
+            line-height: 1;
+            white-space: nowrap;
+        }
+
+        .member-badge.soon {
+            border-color: rgba(148, 163, 184, .18);
+            background: rgba(148, 163, 184, .08);
+            color: #cbd5e1;
+        }
+
+        .feature-strip {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .feature-card {
+            position: relative;
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            align-items: center;
+            min-height: 82px;
+            overflow: hidden;
+            gap: 14px;
+            padding: 16px;
+            border: 1px solid rgba(148, 163, 184, .18);
+            border-radius: 12px;
+            background:
+                linear-gradient(135deg, rgba(59, 130, 246, .18), rgba(15, 23, 42, .12) 42%, rgba(255, 255, 255, .05)),
+                rgba(15, 23, 42, .66);
+            box-shadow: 0 14px 34px rgba(0, 0, 0, .22);
+            isolation: isolate;
+            transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(96, 165, 250, .42);
+            box-shadow: 0 20px 42px rgba(30, 64, 175, .25);
+        }
+
+        .feature-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            background:
+                radial-gradient(circle at 12% 20%, rgba(96, 165, 250, .24), transparent 34%),
+                radial-gradient(circle at 88% 90%, rgba(45, 212, 191, .13), transparent 38%);
+            opacity: .85;
+            animation: featureGlow 5.5s ease-in-out infinite;
+        }
+
+        .feature-card::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: -45%;
+            width: 40%;
+            transform: skewX(-18deg);
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .13), transparent);
+            animation: featureShine 4.6s ease-in-out infinite;
+        }
+
+        .feature-card:nth-child(2) {
+            background:
+                linear-gradient(135deg, rgba(16, 185, 129, .17), rgba(15, 23, 42, .12) 42%, rgba(255, 255, 255, .05)),
+                rgba(15, 23, 42, .66);
+        }
+
+        .feature-card:nth-child(3) {
+            background:
+                linear-gradient(135deg, rgba(245, 158, 11, .17), rgba(15, 23, 42, .12) 42%, rgba(255, 255, 255, .05)),
+                rgba(15, 23, 42, .66);
+        }
+
+        .feature-card:nth-child(4) {
+            background:
+                linear-gradient(135deg, rgba(168, 85, 247, .16), rgba(15, 23, 42, .12) 42%, rgba(255, 255, 255, .05)),
+                rgba(15, 23, 42, .66);
+        }
+
+        .feature-card:nth-child(2)::after {
+            animation-delay: .45s;
+        }
+
+        .feature-card:nth-child(3)::after {
+            animation-delay: .9s;
+        }
+
+        .feature-card:nth-child(4)::after {
+            animation-delay: 1.35s;
+        }
+
+        .feature-mark {
+            display: grid;
+            place-items: center;
+            width: 42px;
+            height: 42px;
+            border: 1px solid rgba(255, 255, 255, .16);
+            border-radius: 12px;
+            background: rgba(2, 6, 23, .42);
+            color: #dbeafe;
+            font-size: 13px;
+            font-weight: 900;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .10), 0 10px 24px rgba(0, 0, 0, .18);
+        }
+
+        .feature-icon {
+            position: relative;
+            display: block;
+            width: 20px;
+            height: 20px;
+        }
+
+        .feature-icon::before,
+        .feature-icon::after {
+            content: "";
+            position: absolute;
+            display: block;
+        }
+
+        .icon-delivery::before {
+            left: 1px;
+            top: 6px;
+            width: 13px;
+            height: 8px;
+            border: 2px solid currentColor;
+            border-radius: 3px;
+        }
+
+        .icon-delivery::after {
+            right: 1px;
+            top: 9px;
+            width: 7px;
+            height: 5px;
+            border: 2px solid currentColor;
+            border-left: 0;
+            border-radius: 0 3px 3px 0;
+            box-shadow: -11px 8px 0 -5px currentColor, 0 8px 0 -5px currentColor;
+        }
+
+        .icon-clock {
+            border: 2px solid currentColor;
+            border-radius: 50%;
+        }
+
+        .icon-clock::before {
+            left: 8px;
+            top: 4px;
+            width: 2px;
+            height: 7px;
+            border-radius: 2px;
+            background: currentColor;
+        }
+
+        .icon-clock::after {
+            left: 9px;
+            top: 9px;
+            width: 6px;
+            height: 2px;
+            border-radius: 2px;
+            background: currentColor;
+            transform: rotate(28deg);
+            transform-origin: left center;
+        }
+
+        .icon-pool::before {
+            left: 2px;
+            top: 3px;
+            width: 7px;
+            height: 7px;
+            border: 2px solid currentColor;
+            border-radius: 50%;
+            box-shadow: 9px 0 0 -2px currentColor, 4px 10px 0 -2px currentColor;
+        }
+
+        .icon-pool::after {
+            left: 4px;
+            top: 12px;
+            width: 12px;
+            height: 5px;
+            border: 2px solid currentColor;
+            border-top: 0;
+            border-radius: 0 0 9px 9px;
+        }
+
+        .icon-private::before {
+            left: 4px;
+            top: 8px;
+            width: 12px;
+            height: 9px;
+            border: 2px solid currentColor;
+            border-radius: 3px;
+        }
+
+        .icon-private::after {
+            left: 7px;
+            top: 2px;
+            width: 6px;
+            height: 9px;
+            border: 2px solid currentColor;
+            border-bottom: 0;
+            border-radius: 7px 7px 0 0;
+        }
+
+        .feature-text {
+            min-width: 0;
+        }
+
+        .feature-title {
+            overflow: hidden;
+            margin: 0;
+            color: #f8fafc;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 16px;
+            line-height: 1.15;
+            font-weight: 900;
+        }
+
+        .feature-note {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            overflow: hidden;
+            margin-top: 7px;
+            color: #94a3b8;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .feature-note::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #60a5fa;
+            box-shadow: 0 0 14px rgba(96, 165, 250, .9);
+        }
+
+        .feature-card:nth-child(2) .feature-note::before {
+            background: #34d399;
+            box-shadow: 0 0 14px rgba(52, 211, 153, .9);
+        }
+
+        .feature-card:nth-child(3) .feature-note::before {
+            background: #fbbf24;
+            box-shadow: 0 0 14px rgba(251, 191, 36, .85);
+        }
+
+        .feature-card:nth-child(4) .feature-note::before {
+            background: #c084fc;
+            box-shadow: 0 0 14px rgba(192, 132, 252, .86);
+        }
+
+        @keyframes featureGlow {
+            0%, 100% {
+                opacity: .72;
+            }
+            50% {
+                opacity: 1;
+            }
+        }
+
+        @keyframes featureShine {
+            0%, 38% {
+                left: -45%;
+            }
+            70%, 100% {
+                left: 115%;
+            }
+        }
+
+        .empty {
+            padding: 32px;
+            border: 1px dashed rgba(255, 255, 255, .16);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, .05);
+            color: var(--muted);
+            text-align: center;
+            font-size: 14px;
+        }
+
+        @media (max-width: 900px) {
+            body {
+                padding-top: 116px;
+            }
+
+            .site-header {
+                position: fixed;
+                top: 0;
+                right: 0;
+                left: 0;
+                z-index: 1000;
+                background: rgba(2, 6, 23, .88);
+                box-shadow: 0 10px 28px rgba(0, 0, 0, .20);
+            }
+
+            .header-inner {
+                align-items: flex-start;
+                flex-direction: column;
+                padding: 12px 0;
+            }
+
+            .top-nav {
+                justify-content: flex-start;
+                width: 100%;
+                overflow-x: auto;
+                overflow-y: hidden;
+                padding-bottom: 8px;
+                scrollbar-width: none;
+            }
+
+            .top-nav::-webkit-scrollbar {
+                display: none;
+            }
+
+            .project-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 10px;
+            }
+
+            .feature-strip {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+        }
+
+        @media (max-width: 520px) {
+            body {
+                padding-top: 110px;
+            }
+
+            .header-inner,
+            .wrap {
+                width: min(100% - 24px, 1180px);
+            }
+
+            .brand span:last-child {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .top-nav a,
+            .top-nav button {
+                min-height: 32px;
+                padding: 0 12px;
+                font-size: 12px;
+            }
+
+            .top-nav-menu {
+                left: 0;
+                transform: translateY(-6px);
+            }
+
+            .top-nav-item:hover .top-nav-menu,
+            .top-nav-item:focus-within .top-nav-menu {
+                transform: translateY(0);
+            }
+
+            .wrap {
+                padding-top: 26px;
+            }
+
+            .hero p {
+                font-size: 15px;
+            }
+
+            .section-hero {
+                margin-top: 20px;
+            }
+
+            .section-hero p {
+                font-size: 15px;
+            }
+
+            .project-card {
+                aspect-ratio: 3 / 1;
+            }
+
+            .project-inner {
+                gap: 8px;
+                padding: 6px;
+            }
+
+            .project-icon {
+                width: 44px;
+                height: 44px;
+            }
+
+            .project-title {
+                font-size: 16px;
+            }
+
+            .project-desc,
+            .project-action {
+                font-size: 11px;
+            }
+
+            .project-action {
+                display: flex;
+                justify-content: space-between;
+                gap: 8px;
+                width: 100%;
+            }
+
+            .member-badge {
+                position: static;
+                flex: 0 0 auto;
+            }
+
+            .feature-card {
+                min-height: 74px;
+                gap: 10px;
+                padding: 12px;
+            }
+
+            .feature-strip {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .feature-title {
+                font-size: 16px;
+            }
+
+            .feature-note {
+                font-size: 12px;
+            }
+
+            .feature-mark {
+                width: 36px;
+                height: 36px;
+                border-radius: 10px;
+            }
+
+            .feature-icon {
+                transform: scale(.86);
+            }
+
+        }
+    </style>
 </head>
 <body>
-  <header class="site-header">
-    <a class="brand" href="#top" aria-label="88FK OTP 首页">
-      <span class="brand-mark">88</span>
-      <span>88FK OTP</span>
-    </a>
-    <nav class="nav" aria-label="主导航">
-      <a href="#scenarios">场景</a>
-      <a href="#compliance">合规</a>
-      <a href="#docs">文档</a>
-      <a href="#contact">接入咨询</a>
-    </nav>
-  </header>
+    <?php smsRenderPortalHeader('sms', true); ?>
 
-  <main id="top">
-    <section class="hero">
-      <div class="hero-inner">
-        <p class="eyebrow">企业短信验证码服务</p>
-        <h1>为自有业务构建可审计、可风控的 OTP 验证流程</h1>
-        <p class="lead">
-          88FK OTP 面向网站、应用和内部系统提供短信验证码能力说明、接入规范与合规使用指引，
-          帮助团队把登录、注册、找回密码和高风险操作验证做得更稳定、更透明。
-        </p>
-        <div class="actions">
-          <a class="button primary" href="https://sms.88fk.net/" rel="noopener">访问服务入口</a>
-          <a class="button secondary" href="#docs">查看接入说明</a>
-        </div>
-      </div>
-    </section>
+    <main class="wrap">
+        <section class="hero" id="smsVerify">
+            <h1>选择平台，开始<span class="hero-highlight">接码验证</span></h1>
+            <p>
+                点击进入对应项目，即可获取电话号码<strong>接收验证码</strong>。
+            </p>
+        </section>
 
-    <section class="section metrics" aria-label="服务重点">
-      <article>
-        <strong>风控优先</strong>
-        <span>支持频控、异常识别、失败重试与日志留存建议。</span>
-      </article>
-      <article>
-        <strong>自有业务</strong>
-        <span>仅用于用户已授权或企业自有系统的验证码流程。</span>
-      </article>
-      <article>
-        <strong>透明规则</strong>
-        <span>明确禁止欺诈、骚扰、批量垃圾注册和平台规则规避。</span>
-      </article>
-    </section>
+        <section class="project-grid">
+            <?php foreach ($projects as $project): ?>
+            <?php
+                $meta = portalProjectMeta($project);
+                $url = portalProjectUrl($project);
+            ?>
+            <a href="<?php echo htmlspecialchars($url); ?>" class="project-card member-card">
+                <article class="project-inner">
+                    <?php if (!empty($meta['image'])): ?>
+                    <img src="<?php echo htmlspecialchars($meta['image']); ?>" alt="<?php echo htmlspecialchars($project['name']); ?>" class="project-icon">
+                    <?php else: ?>
+                    <div class="project-icon project-fallback">OK</div>
+                    <?php endif; ?>
+                    <div class="project-copy">
+                        <h2 class="project-title"><?php echo htmlspecialchars($project['name']); ?></h2>
+                        <p class="project-desc"><?php echo htmlspecialchars($meta['desc']); ?></p>
+                        <div class="project-action">
+                            <span class="project-action-text">进入验证 <span>&gt;</span></span>
+                            <span class="member-badge">线路正常</span>
+                        </div>
+                    </div>
+                </article>
+            </a>
+            <?php endforeach; ?>
+            <article class="project-card member-card is-disabled">
+                <div class="project-inner">
+                    <div class="project-icon project-fallback">+</div>
+                    <div class="project-copy">
+                        <h2 class="project-title">更多验证</h2>
+                        <p class="project-desc">更多平台陆续上线</p>
+                        <div class="project-action">
+                            <span class="project-action-text">敬请期待 <span>&gt;</span></span>
+                            <span class="member-badge soon">持续接入</span>
+                        </div>
+                    </div>
+                </div>
+            </article>
+        </section>
 
-    <section class="section two-column" id="scenarios">
-      <div>
-        <p class="eyebrow">适用场景</p>
-        <h2>围绕真实用户和授权业务的验证需求</h2>
-      </div>
-      <div class="grid">
-        <article class="card">
-          <h3>账号安全</h3>
-          <p>用于自有产品的注册确认、登录二次验证、敏感资料修改和密码找回。</p>
-        </article>
-        <article class="card">
-          <h3>交易确认</h3>
-          <p>为支付、发货、提现、企业审批等高风险动作增加一次性验证码确认。</p>
-        </article>
-        <article class="card">
-          <h3>内部系统</h3>
-          <p>为运营后台、客户服务、成员邀请和设备绑定提供可记录的验证流程。</p>
-        </article>
-        <article class="card">
-          <h3>开发测试</h3>
-          <p>为授权测试环境提供验证码流程验证，建议与生产线路、真实用户数据隔离。</p>
-        </article>
-      </div>
-    </section>
+        <section class="feature-strip" aria-label="平台服务优势">
+            <article class="feature-card">
+                <div class="feature-mark"><span class="feature-icon icon-delivery" aria-hidden="true"></span></div>
+                <div class="feature-text">
+                    <h2 class="feature-title">秒级 自动发货</h2>
+                    <div class="feature-note">购买后自动交付</div>
+                </div>
+            </article>
+            <article class="feature-card">
+                <div class="feature-mark"><span class="feature-icon icon-clock" aria-hidden="true"></span></div>
+                <div class="feature-text">
+                    <h2 class="feature-title">24小时自助服务</h2>
+                    <div class="feature-note">随时进入验证</div>
+                </div>
+            </article>
+            <article class="feature-card">
+                <div class="feature-mark"><span class="feature-icon icon-pool" aria-hidden="true"></span></div>
+                <div class="feature-text">
+                    <h2 class="feature-title">优质号池 高成功率</h2>
+                    <div class="feature-note">多项目稳定适配</div>
+                </div>
+            </article>
+            <article class="feature-card">
+                <div class="feature-mark"><span class="feature-icon icon-private" aria-hidden="true"></span></div>
+                <div class="feature-text">
+                    <h2 class="feature-title">私有号池 专属接码</h2>
+                    <div class="feature-note">验证码不公开共享</div>
+                </div>
+            </article>
+        </section>
 
-    <section class="section policy-band" id="compliance">
-      <p class="eyebrow">合规边界</p>
-      <h2>服务不应用于绕过第三方平台验证或制造虚假账号</h2>
-      <p>
-        88FK OTP 的合规定位是帮助企业完成自有业务中的短信验证码交付与验证管理。用户不得将服务用于欺诈、
-        骚扰、撞库、批量注册垃圾账号、规避第三方平台规则、侵犯他人权益或违反适用法律法规的行为。
-      </p>
-      <ul class="checks">
-        <li>建议对接入方进行业务真实性审核。</li>
-        <li>建议为每个业务场景设置发送频率、失败次数和风险阈值。</li>
-        <li>建议保留必要的订单、请求、结果和风控日志，用于争议处理与安全审计。</li>
-        <li>发现异常使用时，应限制、暂停或终止相关服务。</li>
-      </ul>
-    </section>
+        <section class="section-hero" id="memberRecharge" aria-labelledby="memberRechargeTitle">
+            <h2 id="memberRechargeTitle">选择会员产品，开始<span class="hero-highlight">自助充值</span></h2>
+            <p>
+                点击进入对应项目，即可订阅对应的会员服务。
+            </p>
+        </section>
 
-    <section class="section two-column" id="docs">
-      <div>
-        <p class="eyebrow">接入说明</p>
-        <h2>推荐的验证码流程</h2>
-      </div>
-      <div class="steps">
-        <article>
-          <span>01</span>
-          <div>
-            <h3>创建验证请求</h3>
-            <p>业务系统生成一次性验证请求，绑定用户、场景、有效期和风控参数。</p>
-          </div>
-        </article>
-        <article>
-          <span>02</span>
-          <div>
-            <h3>发送验证码</h3>
-            <p>验证码应设置短有效期，并对同一手机号、IP、设备和账号执行频率限制。</p>
-          </div>
-        </article>
-        <article>
-          <span>03</span>
-          <div>
-            <h3>校验与记录</h3>
-            <p>校验结果应写入业务日志，失败次数过多时触发冷却、人工审核或额外验证。</p>
-          </div>
-        </article>
-      </div>
-    </section>
+        <section class="project-grid" aria-label="会员充值入口">
+            <?php foreach ($memberProjects as $memberProject): ?>
+            <?php
+                $memberUrl = trim((string)($memberProject['url'] ?? ''));
+                $memberEnabled = !empty($memberProject['enabled']) && $memberUrl !== '';
+                $tag = $memberEnabled ? 'a' : 'article';
+                $href = $memberEnabled ? ' href="' . htmlspecialchars($memberUrl) . '"' : '';
+                $target = $memberEnabled && preg_match('#^https?://#i', $memberUrl) ? ' target="_blank" rel="noopener"' : '';
+                $fallback = strtoupper(substr((string)$memberProject['key'], 0, 2));
+            ?>
+            <<?php echo $tag . $href . $target; ?> class="project-card member-card<?php echo $memberEnabled ? '' : ' is-disabled'; ?>">
+                <article class="project-inner">
+                    <?php if (!empty($memberProject['icon'])): ?>
+                    <img src="<?php echo htmlspecialchars($memberProject['icon']); ?>" alt="<?php echo htmlspecialchars($memberProject['name']); ?>" class="project-icon">
+                    <?php else: ?>
+                    <div class="project-icon project-fallback"><?php echo htmlspecialchars($fallback); ?></div>
+                    <?php endif; ?>
+                    <div class="project-copy">
+                        <h2 class="project-title"><?php echo htmlspecialchars($memberProject['name']); ?></h2>
+                        <p class="project-desc"><?php echo htmlspecialchars($memberProject['description']); ?></p>
+                        <div class="project-action">
+                            <span class="project-action-text"><?php echo htmlspecialchars($memberProject['action_text']); ?> <span>&gt;</span></span>
+                            <span class="member-badge<?php echo $memberEnabled ? '' : ' soon'; ?>"><?php echo htmlspecialchars($memberProject['badge']); ?></span>
+                        </div>
+                    </div>
+                </article>
+            </<?php echo $tag; ?>>
+            <?php endforeach; ?>
+            <article class="project-card member-card is-disabled">
+                <div class="project-inner">
+                    <div class="project-icon project-fallback">+</div>
+                    <div class="project-copy">
+                        <h2 class="project-title">更多会员</h2>
+                        <p class="project-desc">更多产品陆续上线</p>
+                        <div class="project-action">
+                            <span class="project-action-text">敬请期待 <span>&gt;</span></span>
+                            <span class="member-badge soon">持续接入</span>
+                        </div>
+                    </div>
+                </div>
+            </article>
+        </section>
 
-    <section class="section faq">
-      <p class="eyebrow">FAQ</p>
-      <details>
-        <summary>是否可以用于第三方平台账号验证？</summary>
-        <p>不建议也不支持用于绕过第三方平台规则、批量注册账号或规避风控的用途。</p>
-      </details>
-      <details>
-        <summary>是否需要保存验证码明文？</summary>
-        <p>生产系统建议只保存哈希或校验状态，并限制可见范围、访问权限和日志保留周期。</p>
-      </details>
-      <details>
-        <summary>如何降低短信滥用风险？</summary>
-        <p>建议结合手机号、账号、IP、设备指纹、行为特征和业务场景配置多维度限流。</p>
-      </details>
-    </section>
+        <?php if (!$projects): ?>
+        <section class="empty">
+            当前还没有启用的验证项目。
+        </section>
+        <?php endif; ?>
 
-    <section class="section contact" id="contact">
-      <div>
-        <p class="eyebrow">接入咨询</p>
-        <h2>准备为自有业务接入短信 OTP？</h2>
-        <p>请先确认业务场景、发送地区、日均请求量、风控要求和日志合规要求，再进入服务入口咨询。</p>
-      </div>
-      <a class="button primary" href="https://sms.88fk.net/" rel="noopener">进入 88FK</a>
-    </section>
-  </main>
-
-  <footer class="footer">
-    <span>88FK OTP</span>
-    <span>合规使用 · 风控优先 · 自有业务验证</span>
-  </footer>
+        <?php smsRenderSiteFooter(); ?>
+    </main>
 </body>
 </html>
