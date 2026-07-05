@@ -1,4 +1,4 @@
-# 88FK 手机验证平台
+#24小时自助 手机验证 | 短信验证系统
 
 88FK 是一个面向账号注册、登录安全验证、海外平台风控校验和短信验证码接收场景的手机验证平台。  
 当你在 ChatGPT / Codex、Google、Telegram、WhatsApp、Claude、Cursor、Discord、Line、X / Twitter、Facebook、Instagram、TikTok、Google Voice、Netmarble、PUBG、暴雪国际服、逃离塔科夫等平台遇到手机号验证时，可以通过 88FK 进入对应项目页面，在线获取手机号并接收短信验证码。
