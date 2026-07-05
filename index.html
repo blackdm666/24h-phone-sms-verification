@@ -1,886 +1,421 @@
-<?php
-require_once __DIR__ . '/project_config.php';
-require_once __DIR__ . '/site_footer.php';
-require_once __DIR__ . '/site_layout.php';
-
-$configFile = __DIR__ . '/line_config.php';
-$config = null;
-if (file_exists($configFile)) {
-    require_once $configFile;
-    $config = smsNormalizeLineConfig(getLineConfig());
-}
-$config = $config ?: smsNormalizeLineConfig([]);
-$host = smsNormalizeHost($_SERVER['HTTP_HOST'] ?? '');
-$isRootPortalHost = in_array($host, ['sms.88fk.net', '192.168.31.222', '127.0.0.1', 'localhost'], true);
-if (!$isRootPortalHost) {
-    $project = smsGetProjectByHost($config);
-    if ($project && !empty($project['key'])) {
-        $entryFile = (($project['product'] ?? '') === 'escapefromtarkov') ? 'index.php' : 'verify.php';
-        $projectEntry = __DIR__ . '/' . basename($project['key']) . '/' . $entryFile;
-        if (is_file($projectEntry)) {
-            require $projectEntry;
-            exit;
-        }
-    }
-}
-$projects = array_values(array_filter($config['projects'], fn($project) => !empty($project['enabled'])));
-usort($projects, function ($a, $b) {
-    $sortA = (int)($a['sort_order'] ?? 0);
-    $sortB = (int)($b['sort_order'] ?? 0);
-    if ($sortA === $sortB) {
-        return 0;
-    }
-    if ($sortA === 0) {
-        return 1;
-    }
-    if ($sortB === 0) {
-        return -1;
-    }
-    return $sortA <=> $sortB;
-});
-$memberConfig = smsLoadMemberConfig(__DIR__ . '/member_config.php');
-$memberProjects = array_values(array_filter($memberConfig['projects'], fn($project) => !empty($project['show_home'])));
-$portalDescription = '88FK手机验证平台提供ChatGPT/Codex、Telegram、Google、Claude、Cursor、逃离塔科夫等账号手机验证服务，支持自助输入卡密、在线获取手机号、自动接收短信验证码、多线路切换和视频教程指引，同时提供GPT、Claude、SuperGrok等会员充值入口，适合账号注册、登录验证、安全检查和会员续费场景。';
-
-function portalProjectUrl(array $project): string {
-    return smsProjectUrl($project);
-}
-
-function portalWebpImage(string $image): string {
-    if ($image === '' || stripos($image, '/assets/brand-logos/') !== 0) {
-        return $image;
-    }
-    $webpImage = preg_replace('/\.png$/i', '.webp', $image);
-    if ($webpImage && is_file(__DIR__ . $webpImage)) {
-        return $webpImage;
-    }
-    return $image;
-}
-
-function portalProjectMeta(array $project): array {
-    $product = strtolower((string)($project['product'] ?? $project['key'] ?? ''));
-    $key = strtolower((string)($project['key'] ?? $product));
-    $meta = [
-        'escapefromtarkov' => ['image' => '/assets/brand-logos/escapefromtarkov.webp', 'desc' => '账号短信验证'],
-        'openai' => ['image' => '/assets/brand-logos/openai.webp', 'desc' => 'ChatGPT / Codex 验证'],
-        'telegram' => ['image' => '/assets/brand-logos/tg.webp', 'desc' => '账号短信验证'],
-        'google' => ['image' => '/assets/brand-logos/YouTube.webp', 'desc' => 'Google / YouTube 验证'],
-        'youtube' => ['image' => '/assets/brand-logos/YouTube.webp', 'desc' => '账号短信验证'],
-        'facebook' => ['image' => '/assets/brand-logos/Facebook.webp', 'desc' => '账号短信验证'],
-        'instagram' => ['image' => '/assets/brand-logos/ins.webp', 'desc' => '账号短信验证'],
-        'x' => ['image' => '/assets/brand-logos/X.webp', 'desc' => '账号短信验证'],
-        'twitter' => ['image' => '/assets/brand-logos/X.webp', 'desc' => '账号短信验证'],
-        'whatsapp' => ['image' => '/assets/brand-logos/whatsapp.webp', 'desc' => '账号短信验证'],
-        'tiktok' => ['image' => '/assets/brand-logos/tiktok.webp', 'desc' => '账号短信验证'],
-        'claude' => ['image' => '/assets/brand-logos/claude.webp', 'desc' => 'Claude 账号验证'],
-        'cursoor' => ['image' => '/assets/brand-logos/cursor-logo.webp', 'desc' => 'Cursor 账号验证'],
-        'cursor' => ['image' => '/assets/brand-logos/cursor-logo.webp', 'desc' => 'Cursor 账号验证'],
-    ];
-    if ($key === 'google' && stripos((string)($project['name'] ?? ''), 'youtube') !== false) {
-        $projectMeta = $meta['youtube'];
-    } else {
-        $projectMeta = $meta[$product] ?? $meta[$key] ?? ['image' => '', 'desc' => '短信验证入口'];
-    }
-    if (!empty($project['icon'])) {
-        $projectMeta['image'] = portalWebpImage($project['icon']);
-    }
-    $cardDescription = trim((string)($project['card_description'] ?? ''));
-    if ($cardDescription !== '') {
-        $projectMeta['desc'] = $cardDescription;
-    }
-    return $projectMeta;
-}
-?>
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>88FK手机验证平台</title>
-    <meta name="description" content="<?php echo htmlspecialchars($portalDescription); ?>">
-    <link rel="canonical" href="https://sms.88fk.net/">
-    <meta property="og:url" content="https://sms.88fk.net/">
-    <meta property="og:description" content="<?php echo htmlspecialchars($portalDescription); ?>">
-    <?php smsRenderPortalBaseStyles(); ?>
-    <style>
-        .hero {
-            margin-bottom: 18px;
-        }
-
-        h1 {
-            max-width: 760px;
-            margin: 0;
-            font-size: clamp(30px, 4vw, 50px);
-            line-height: 1.08;
-            font-weight: 900;
-            letter-spacing: 0;
-        }
-
-        .hero-highlight {
-            color: #93c5fd;
-            text-shadow: 0 0 26px rgba(59, 130, 246, .30);
-        }
-
-        .hero p {
-            max-width: 520px;
-            margin: 16px 0 0;
-            color: var(--muted);
-            font-size: 17px;
-            line-height: 1.65;
-            font-weight: 700;
-        }
-
-        .hero p strong {
-            color: #e2e8f0;
-            font-weight: 900;
-        }
-
-        .section-hero {
-            margin: 22px 0 12px;
-        }
-
-        .section-hero h2 {
-            max-width: 760px;
-            margin: 0;
-            color: var(--text);
-            font-size: clamp(28px, 3.4vw, 42px);
-            line-height: 1.1;
-            font-weight: 900;
-            letter-spacing: 0;
-        }
-
-        .section-hero p {
-            max-width: 620px;
-            margin: 14px 0 0;
-            color: var(--muted);
-            font-size: 16px;
-            line-height: 1.65;
-            font-weight: 700;
-        }
-
-        .project-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
-        }
-
-        .project-card {
-            display: block;
-            min-width: 0;
-            aspect-ratio: 3 / 1;
-            overflow: hidden;
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            background:
-                radial-gradient(circle at top left, rgba(96, 165, 250, .18), transparent 42%),
-                linear-gradient(180deg, rgba(15, 23, 42, .92), rgba(15, 23, 42, .72));
-            box-shadow: 0 10px 24px rgba(0, 0, 0, .20);
-            transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
-        }
-
-        .project-card:hover {
-            transform: translateY(-2px);
-            border-color: var(--line-strong);
-            box-shadow: 0 18px 36px rgba(30, 64, 175, .30);
-        }
-
-        .project-inner {
-            display: flex;
-            align-items: center;
-            height: 100%;
-            min-width: 0;
-            gap: 10px;
-            padding: 8px;
-        }
-
-        .project-icon {
-            flex: 0 0 auto;
-            width: 52px;
-            height: 52px;
-            border-radius: 8px;
-            object-fit: cover;
-            background: #0f172a;
-            box-shadow: 0 0 0 1px rgba(255, 255, 255, .10);
-        }
-
-        .project-fallback {
-            display: grid;
-            place-items: center;
-            color: #fff;
-            font-size: 18px;
-            font-weight: 900;
-        }
-
-        .project-copy {
-            min-width: 0;
-            flex: 1 1 auto;
-        }
-
-        .project-title {
-            overflow: hidden;
-            margin: 0;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            font-size: 18px;
-            line-height: 1;
-            font-weight: 900;
-        }
-
-        .project-desc {
-            overflow: hidden;
-            margin: 4px 0 0;
-            color: var(--muted);
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            font-size: 12px;
-            line-height: 1;
-            font-weight: 700;
-        }
-
-        .project-action {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            margin-top: 5px;
-            color: #93c5fd;
-            font-size: 12px;
-            line-height: 1;
-            font-weight: 900;
-        }
-
-        .project-action-text {
-            display: inline-flex;
-            align-items: center;
-            min-width: 0;
-            gap: 4px;
-            white-space: nowrap;
-        }
-
-        .project-card:hover .project-action-text span {
-            transform: translateX(2px);
-        }
-
-        .project-action-text span {
-            transition: transform .18s ease;
-        }
-
-        .member-card {
-            position: relative;
-        }
-
-        .member-card.is-disabled {
-            cursor: default;
-            opacity: .78;
-        }
-
-        .member-card.is-disabled:hover {
-            transform: none;
-            border-color: var(--line);
-            box-shadow: 0 10px 24px rgba(0, 0, 0, .20);
-        }
-
-        .member-badge {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            z-index: 1;
-            display: inline-flex;
-            align-items: center;
-            min-height: 22px;
-            padding: 0 8px;
-            border: 1px solid rgba(52, 211, 153, .30);
-            border-radius: 999px;
-            background: rgba(52, 211, 153, .10);
-            color: #bbf7d0;
-            font-size: 11px;
-            font-weight: 900;
-            line-height: 1;
-            white-space: nowrap;
-        }
-
-        .member-badge.soon {
-            border-color: rgba(148, 163, 184, .18);
-            background: rgba(148, 163, 184, .08);
-            color: #cbd5e1;
-        }
-
-        .feature-strip {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
-            margin-top: 18px;
-        }
-
-        .feature-card {
-            position: relative;
-            display: grid;
-            grid-template-columns: auto minmax(0, 1fr);
-            align-items: center;
-            min-height: 82px;
-            overflow: hidden;
-            gap: 14px;
-            padding: 16px;
-            border: 1px solid rgba(148, 163, 184, .18);
-            border-radius: 12px;
-            background:
-                linear-gradient(135deg, rgba(59, 130, 246, .18), rgba(15, 23, 42, .12) 42%, rgba(255, 255, 255, .05)),
-                rgba(15, 23, 42, .66);
-            box-shadow: 0 14px 34px rgba(0, 0, 0, .22);
-            isolation: isolate;
-            transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
-        }
-
-        .feature-card:hover {
-            transform: translateY(-3px);
-            border-color: rgba(96, 165, 250, .42);
-            box-shadow: 0 20px 42px rgba(30, 64, 175, .25);
-        }
-
-        .feature-card::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            z-index: -1;
-            background:
-                radial-gradient(circle at 12% 20%, rgba(96, 165, 250, .24), transparent 34%),
-                radial-gradient(circle at 88% 90%, rgba(45, 212, 191, .13), transparent 38%);
-            opacity: .85;
-            animation: featureGlow 5.5s ease-in-out infinite;
-        }
-
-        .feature-card::after {
-            content: "";
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            left: -45%;
-            width: 40%;
-            transform: skewX(-18deg);
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .13), transparent);
-            animation: featureShine 4.6s ease-in-out infinite;
-        }
-
-        .feature-card:nth-child(2) {
-            background:
-                linear-gradient(135deg, rgba(16, 185, 129, .17), rgba(15, 23, 42, .12) 42%, rgba(255, 255, 255, .05)),
-                rgba(15, 23, 42, .66);
-        }
-
-        .feature-card:nth-child(3) {
-            background:
-                linear-gradient(135deg, rgba(245, 158, 11, .17), rgba(15, 23, 42, .12) 42%, rgba(255, 255, 255, .05)),
-                rgba(15, 23, 42, .66);
-        }
-
-        .feature-card:nth-child(4) {
-            background:
-                linear-gradient(135deg, rgba(168, 85, 247, .16), rgba(15, 23, 42, .12) 42%, rgba(255, 255, 255, .05)),
-                rgba(15, 23, 42, .66);
-        }
-
-        .feature-card:nth-child(2)::after {
-            animation-delay: .45s;
-        }
-
-        .feature-card:nth-child(3)::after {
-            animation-delay: .9s;
-        }
-
-        .feature-card:nth-child(4)::after {
-            animation-delay: 1.35s;
-        }
-
-        .feature-mark {
-            display: grid;
-            place-items: center;
-            width: 42px;
-            height: 42px;
-            border: 1px solid rgba(255, 255, 255, .16);
-            border-radius: 12px;
-            background: rgba(2, 6, 23, .42);
-            color: #dbeafe;
-            font-size: 13px;
-            font-weight: 900;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .10), 0 10px 24px rgba(0, 0, 0, .18);
-        }
-
-        .feature-icon {
-            position: relative;
-            display: block;
-            width: 20px;
-            height: 20px;
-        }
-
-        .feature-icon::before,
-        .feature-icon::after {
-            content: "";
-            position: absolute;
-            display: block;
-        }
-
-        .icon-delivery::before {
-            left: 1px;
-            top: 6px;
-            width: 13px;
-            height: 8px;
-            border: 2px solid currentColor;
-            border-radius: 3px;
-        }
-
-        .icon-delivery::after {
-            right: 1px;
-            top: 9px;
-            width: 7px;
-            height: 5px;
-            border: 2px solid currentColor;
-            border-left: 0;
-            border-radius: 0 3px 3px 0;
-            box-shadow: -11px 8px 0 -5px currentColor, 0 8px 0 -5px currentColor;
-        }
-
-        .icon-clock {
-            border: 2px solid currentColor;
-            border-radius: 50%;
-        }
-
-        .icon-clock::before {
-            left: 8px;
-            top: 4px;
-            width: 2px;
-            height: 7px;
-            border-radius: 2px;
-            background: currentColor;
-        }
-
-        .icon-clock::after {
-            left: 9px;
-            top: 9px;
-            width: 6px;
-            height: 2px;
-            border-radius: 2px;
-            background: currentColor;
-            transform: rotate(28deg);
-            transform-origin: left center;
-        }
-
-        .icon-pool::before {
-            left: 2px;
-            top: 3px;
-            width: 7px;
-            height: 7px;
-            border: 2px solid currentColor;
-            border-radius: 50%;
-            box-shadow: 9px 0 0 -2px currentColor, 4px 10px 0 -2px currentColor;
-        }
-
-        .icon-pool::after {
-            left: 4px;
-            top: 12px;
-            width: 12px;
-            height: 5px;
-            border: 2px solid currentColor;
-            border-top: 0;
-            border-radius: 0 0 9px 9px;
-        }
-
-        .icon-private::before {
-            left: 4px;
-            top: 8px;
-            width: 12px;
-            height: 9px;
-            border: 2px solid currentColor;
-            border-radius: 3px;
-        }
-
-        .icon-private::after {
-            left: 7px;
-            top: 2px;
-            width: 6px;
-            height: 9px;
-            border: 2px solid currentColor;
-            border-bottom: 0;
-            border-radius: 7px 7px 0 0;
-        }
-
-        .feature-text {
-            min-width: 0;
-        }
-
-        .feature-title {
-            overflow: hidden;
-            margin: 0;
-            color: #f8fafc;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            font-size: 16px;
-            line-height: 1.15;
-            font-weight: 900;
-        }
-
-        .feature-note {
-            display: flex;
-            align-items: center;
-            gap: 7px;
-            overflow: hidden;
-            margin-top: 7px;
-            color: #94a3b8;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            font-size: 12px;
-            font-weight: 700;
-            line-height: 1;
-        }
-
-        .feature-note::before {
-            content: "";
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: #60a5fa;
-            box-shadow: 0 0 14px rgba(96, 165, 250, .9);
-        }
-
-        .feature-card:nth-child(2) .feature-note::before {
-            background: #34d399;
-            box-shadow: 0 0 14px rgba(52, 211, 153, .9);
-        }
-
-        .feature-card:nth-child(3) .feature-note::before {
-            background: #fbbf24;
-            box-shadow: 0 0 14px rgba(251, 191, 36, .85);
-        }
-
-        .feature-card:nth-child(4) .feature-note::before {
-            background: #c084fc;
-            box-shadow: 0 0 14px rgba(192, 132, 252, .86);
-        }
-
-        @keyframes featureGlow {
-            0%, 100% {
-                opacity: .72;
-            }
-            50% {
-                opacity: 1;
-            }
-        }
-
-        @keyframes featureShine {
-            0%, 38% {
-                left: -45%;
-            }
-            70%, 100% {
-                left: 115%;
-            }
-        }
-
-        .empty {
-            padding: 32px;
-            border: 1px dashed rgba(255, 255, 255, .16);
-            border-radius: 8px;
-            background: rgba(255, 255, 255, .05);
-            color: var(--muted);
-            text-align: center;
-            font-size: 14px;
-        }
-
-        @media (max-width: 900px) {
-            body {
-                padding-top: 116px;
-            }
-
-            .site-header {
-                position: fixed;
-                top: 0;
-                right: 0;
-                left: 0;
-                z-index: 1000;
-                background: rgba(2, 6, 23, .88);
-                box-shadow: 0 10px 28px rgba(0, 0, 0, .20);
-            }
-
-            .header-inner {
-                align-items: flex-start;
-                flex-direction: column;
-                padding: 12px 0;
-            }
-
-            .top-nav {
-                justify-content: flex-start;
-                width: 100%;
-                overflow-x: auto;
-                overflow-y: hidden;
-                padding-bottom: 8px;
-                scrollbar-width: none;
-            }
-
-            .top-nav::-webkit-scrollbar {
-                display: none;
-            }
-
-            .project-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 10px;
-            }
-
-            .feature-strip {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-
-        }
-
-        @media (max-width: 520px) {
-            body {
-                padding-top: 110px;
-            }
-
-            .header-inner,
-            .wrap {
-                width: min(100% - 24px, 1180px);
-            }
-
-            .brand span:last-child {
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-
-            .top-nav a,
-            .top-nav button {
-                min-height: 32px;
-                padding: 0 12px;
-                font-size: 12px;
-            }
-
-            .top-nav-menu {
-                left: 0;
-                transform: translateY(-6px);
-            }
-
-            .top-nav-item:hover .top-nav-menu,
-            .top-nav-item:focus-within .top-nav-menu {
-                transform: translateY(0);
-            }
-
-            .wrap {
-                padding-top: 26px;
-            }
-
-            .hero p {
-                font-size: 15px;
-            }
-
-            .section-hero {
-                margin-top: 20px;
-            }
-
-            .section-hero p {
-                font-size: 15px;
-            }
-
-            .project-card {
-                aspect-ratio: 3 / 1;
-            }
-
-            .project-inner {
-                gap: 8px;
-                padding: 6px;
-            }
-
-            .project-icon {
-                width: 44px;
-                height: 44px;
-            }
-
-            .project-title {
-                font-size: 16px;
-            }
-
-            .project-desc,
-            .project-action {
-                font-size: 11px;
-            }
-
-            .project-action {
-                display: flex;
-                justify-content: space-between;
-                gap: 8px;
-                width: 100%;
-            }
-
-            .member-badge {
-                position: static;
-                flex: 0 0 auto;
-            }
-
-            .feature-card {
-                min-height: 74px;
-                gap: 10px;
-                padding: 12px;
-            }
-
-            .feature-strip {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-
-            .feature-title {
-                font-size: 16px;
-            }
-
-            .feature-note {
-                font-size: 12px;
-            }
-
-            .feature-mark {
-                width: 36px;
-                height: 36px;
-                border-radius: 10px;
-            }
-
-            .feature-icon {
-                transform: scale(.86);
-            }
-
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>88FK手机验证平台 - ChatGPT Codex Google Telegram 验证码接收</title>
+  <meta name="description" content="88FK手机验证平台提供 ChatGPT Codex、OpenAI、Google、Telegram、Claude、Cursor、逃离塔科夫等账号手机验证服务，在线获取手机号并接收短信验证码。">
+  <meta name="keywords" content="手机验证,短信验证,验证码接收,ChatGPT手机验证,Codex验证,OpenAI验证,Google验证,Telegram验证,Claude验证,Cursor验证">
+  <meta name="robots" content="index,follow">
+  <meta property="og:title" content="88FK手机验证平台">
+  <meta property="og:description" content="多平台账号手机验证与短信验证码接收服务，支持 ChatGPT Codex、Google、Telegram、Claude、Cursor 等常见场景。">
+  <meta property="og:url" content="https://sms.88fk.net/">
+  <meta property="og:type" content="website">
+  <style>
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: #07111f;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+    a { color: inherit; text-decoration: none; }
+    .page {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 14% 8%, rgba(59, 130, 246, .24), transparent 30%),
+        radial-gradient(circle at 85% 14%, rgba(20, 184, 166, .16), transparent 28%),
+        linear-gradient(180deg, #07111f 0%, #0b1220 58%, #060914 100%);
+    }
+    .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid rgba(148, 163, 184, .16);
+      background: rgba(7, 17, 31, .86);
+      backdrop-filter: blur(12px);
+    }
+    .nav {
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      font-weight: 900;
+    }
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: #165dff;
+      box-shadow: 0 12px 26px rgba(22, 93, 255, .28);
+    }
+    .navlinks {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .navlinks::-webkit-scrollbar { display: none; }
+    .navlinks a {
+      flex: 0 0 auto;
+      padding: 9px 12px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      color: #cbd5e1;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .navlinks a:hover, .navlinks .primary {
+      border-color: rgba(96, 165, 250, .34);
+      background: rgba(37, 99, 235, .18);
+      color: #dbeafe;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(320px, .95fr);
+      align-items: center;
+      gap: 34px;
+      padding: 58px 0 34px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      padding: 0 12px;
+      border: 1px solid rgba(125, 211, 252, .32);
+      border-radius: 999px;
+      background: rgba(14, 165, 233, .12);
+      color: #bae6fd;
+      font-size: 13px;
+      font-weight: 900;
+    }
+    h1 {
+      margin: 18px 0 14px;
+      max-width: 760px;
+      font-size: clamp(34px, 6vw, 68px);
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+    .lead {
+      margin: 0;
+      max-width: 720px;
+      color: #cbd5e1;
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.75;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 26px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 0 18px;
+      border: 1px solid rgba(148, 163, 184, .22);
+      border-radius: 8px;
+      background: rgba(15, 23, 42, .72);
+      color: #e2e8f0;
+      font-size: 15px;
+      font-weight: 900;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, .16);
+    }
+    .btn.main {
+      border-color: rgba(96, 165, 250, .48);
+      background: #165dff;
+      color: #fff;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .hero-panel {
+      border: 1px solid rgba(148, 163, 184, .18);
+      border-radius: 8px;
+      background: rgba(15, 23, 42, .72);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, .28);
+      overflow: hidden;
+    }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 50px;
+      padding: 0 16px;
+      border-bottom: 1px solid rgba(148, 163, 184, .14);
+      color: #cbd5e1;
+      font-size: 13px;
+      font-weight: 900;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #86efac;
+    }
+    .status::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #22c55e;
+      box-shadow: 0 0 0 6px rgba(34, 197, 94, .12);
+    }
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      padding: 16px;
+    }
+    .service {
+      min-height: 112px;
+      padding: 14px;
+      border: 1px solid rgba(148, 163, 184, .14);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, .48);
+    }
+    .service-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .service img {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: #fff;
+      object-fit: cover;
+    }
+    .service strong {
+      display: block;
+      overflow: hidden;
+      color: #f8fafc;
+      font-size: 15px;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .service span {
+      display: block;
+      margin-top: 3px;
+      color: #93c5fd;
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .service p {
+      margin: 10px 0 0;
+      color: #94a3b8;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.55;
+    }
+    .section {
+      padding: 28px 0;
+    }
+    .section h2 {
+      margin: 0 0 14px;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .card {
+      padding: 18px;
+      border: 1px solid rgba(148, 163, 184, .16);
+      border-radius: 8px;
+      background: rgba(15, 23, 42, .62);
+    }
+    .card b {
+      display: block;
+      margin-bottom: 8px;
+      color: #e0f2fe;
+      font-size: 17px;
+    }
+    .card p {
+      margin: 0;
+      color: #94a3b8;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.7;
+    }
+    .links {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .link-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 50px;
+      padding: 0 14px;
+      border: 1px solid rgba(148, 163, 184, .16);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, .38);
+      color: #dbeafe;
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .link-item:hover {
+      border-color: rgba(96, 165, 250, .48);
+      background: rgba(37, 99, 235, .16);
+    }
+    .arrow { color: #38bdf8; }
+    .foot {
+      margin-top: 32px;
+      padding: 24px 0 34px;
+      border-top: 1px solid rgba(148, 163, 184, .14);
+      color: #94a3b8;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.8;
+    }
+    @media (max-width: 920px) {
+      .nav { align-items: flex-start; flex-direction: column; padding: 12px 0; }
+      .navlinks { justify-content: flex-start; width: 100%; }
+      .hero { grid-template-columns: 1fr; padding-top: 34px; }
+      .cards { grid-template-columns: 1fr; }
+      .links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 560px) {
+      .wrap { width: min(100% - 24px, 1120px); }
+      .service-grid, .links { grid-template-columns: 1fr; }
+      .hero-panel { margin: 0 -2px; }
+      .actions .btn { width: 100%; }
+    }
+  </style>
 </head>
 <body>
-    <?php smsRenderPortalHeader('sms', true); ?>
+  <div class="page">
+    <header class="topbar">
+      <div class="wrap nav">
+        <a class="brand" href="https://sms.88fk.net/">
+          <span class="mark">88</span>
+          <span>88FK手机验证平台</span>
+        </a>
+        <nav class="navlinks" aria-label="主要入口">
+          <a class="primary" href="https://sms.88fk.net/">进入官网</a>
+          <a href="https://sms.88fk.net/codex/">Codex</a>
+          <a href="https://sms.88fk.net/google/">Google</a>
+          <a href="https://sms.88fk.net/telegram/">Telegram</a>
+          <a href="https://sms.88fk.net/blog/">教程博客</a>
+        </nav>
+      </div>
+    </header>
 
-    <main class="wrap">
-        <section class="hero" id="smsVerify">
-            <h1>选择平台，开始<span class="hero-highlight">接码验证</span></h1>
-            <p>
-                点击进入对应项目，即可获取电话号码<strong>接收验证码</strong>。
-            </p>
-        </section>
+    <main>
+      <section class="wrap hero">
+        <div>
+          <span class="eyebrow">在线接收验证码 · 多平台账号验证</span>
+          <h1>ChatGPT Codex、Google、Telegram 手机验证入口</h1>
+          <p class="lead">
+            88FK 聚合常见海外平台账号验证场景，支持在线获取手机号、接收短信验证码、失败重试和教程指引。GitHub 页面用于导航引流，正式服务请进入主站完成操作。
+          </p>
+          <div class="actions">
+            <a class="btn main" href="https://sms.88fk.net/">打开 88FK 官网</a>
+            <a class="btn" href="https://sms.88fk.net/codex/">ChatGPT / Codex 验证</a>
+            <a class="btn" href="https://sms.88fk.net/blog/">查看教程</a>
+          </div>
+        </div>
 
-        <section class="project-grid">
-            <?php foreach ($projects as $project): ?>
-            <?php
-                $meta = portalProjectMeta($project);
-                $url = portalProjectUrl($project);
-            ?>
-            <a href="<?php echo htmlspecialchars($url); ?>" class="project-card member-card">
-                <article class="project-inner">
-                    <?php if (!empty($meta['image'])): ?>
-                    <img src="<?php echo htmlspecialchars($meta['image']); ?>" alt="<?php echo htmlspecialchars($project['name']); ?>" class="project-icon">
-                    <?php else: ?>
-                    <div class="project-icon project-fallback">OK</div>
-                    <?php endif; ?>
-                    <div class="project-copy">
-                        <h2 class="project-title"><?php echo htmlspecialchars($project['name']); ?></h2>
-                        <p class="project-desc"><?php echo htmlspecialchars($meta['desc']); ?></p>
-                        <div class="project-action">
-                            <span class="project-action-text">进入验证 <span>&gt;</span></span>
-                            <span class="member-badge">线路正常</span>
-                        </div>
-                    </div>
-                </article>
+        <div class="hero-panel" aria-label="热门验证项目">
+          <div class="panel-head">
+            <span>热门项目</span>
+            <span class="status">主站运行中</span>
+          </div>
+          <div class="service-grid">
+            <a class="service" href="https://sms.88fk.net/codex/">
+              <div class="service-top">
+                <img src="https://sms.88fk.net/assets/brand-logos/openai.webp" alt="OpenAI">
+                <div><strong>ChatGPT / Codex</strong><span>AI账号验证</span></div>
+              </div>
+              <p>适用于 OpenAI、ChatGPT、Codex 相关账号手机验证。</p>
             </a>
-            <?php endforeach; ?>
-            <article class="project-card member-card is-disabled">
-                <div class="project-inner">
-                    <div class="project-icon project-fallback">+</div>
-                    <div class="project-copy">
-                        <h2 class="project-title">更多验证</h2>
-                        <p class="project-desc">更多平台陆续上线</p>
-                        <div class="project-action">
-                            <span class="project-action-text">敬请期待 <span>&gt;</span></span>
-                            <span class="member-badge soon">持续接入</span>
-                        </div>
-                    </div>
-                </div>
-            </article>
-        </section>
+            <a class="service" href="https://sms.88fk.net/google/">
+              <div class="service-top">
+                <img src="https://sms.88fk.net/assets/brand-logos/YouTube.webp" alt="Google">
+                <div><strong>Google / YouTube</strong><span>谷歌验证</span></div>
+              </div>
+              <p>支持 Google、Gmail、YouTube 等账号短信验证场景。</p>
+            </a>
+            <a class="service" href="https://sms.88fk.net/telegram/">
+              <div class="service-top">
+                <img src="https://sms.88fk.net/assets/brand-logos/tg.webp" alt="Telegram">
+                <div><strong>Telegram</strong><span>海外社媒</span></div>
+              </div>
+              <p>获取号码并接收 Telegram 注册或登录验证码。</p>
+            </a>
+            <a class="service" href="https://code.88fk.net/">
+              <div class="service-top">
+                <img src="https://sms.88fk.net/assets/brand-logos/escapefromtarkov.webp" alt="逃离塔科夫">
+                <div><strong>逃离塔科夫</strong><span>游戏验证</span></div>
+              </div>
+              <p>塔科夫验证建议使用电脑浏览器访问 code.88fk.net。</p>
+            </a>
+          </div>
+        </div>
+      </section>
 
-        <section class="feature-strip" aria-label="平台服务优势">
-            <article class="feature-card">
-                <div class="feature-mark"><span class="feature-icon icon-delivery" aria-hidden="true"></span></div>
-                <div class="feature-text">
-                    <h2 class="feature-title">秒级 自动发货</h2>
-                    <div class="feature-note">购买后自动交付</div>
-                </div>
-            </article>
-            <article class="feature-card">
-                <div class="feature-mark"><span class="feature-icon icon-clock" aria-hidden="true"></span></div>
-                <div class="feature-text">
-                    <h2 class="feature-title">24小时自助服务</h2>
-                    <div class="feature-note">随时进入验证</div>
-                </div>
-            </article>
-            <article class="feature-card">
-                <div class="feature-mark"><span class="feature-icon icon-pool" aria-hidden="true"></span></div>
-                <div class="feature-text">
-                    <h2 class="feature-title">优质号池 高成功率</h2>
-                    <div class="feature-note">多项目稳定适配</div>
-                </div>
-            </article>
-            <article class="feature-card">
-                <div class="feature-mark"><span class="feature-icon icon-private" aria-hidden="true"></span></div>
-                <div class="feature-text">
-                    <h2 class="feature-title">私有号池 专属接码</h2>
-                    <div class="feature-note">验证码不公开共享</div>
-                </div>
-            </article>
-        </section>
+      <section class="wrap section">
+        <h2>为什么从这里进入</h2>
+        <div class="cards">
+          <div class="card">
+            <b>主站统一入口</b>
+            <p>所有验证服务以 sms.88fk.net 为主入口，页面会按项目分流到对应验证流程。</p>
+          </div>
+          <div class="card">
+            <b>教程配套</b>
+            <p>站内教程覆盖获取号码、填写手机号、查看验证码、失败重试等常见操作。</p>
+          </div>
+          <div class="card">
+            <b>多项目覆盖</b>
+            <p>支持 AI 工具、Google、Telegram、游戏和海外社媒等常用账号验证场景。</p>
+          </div>
+        </div>
+      </section>
 
-        <section class="section-hero" id="memberRecharge" aria-labelledby="memberRechargeTitle">
-            <h2 id="memberRechargeTitle">选择会员产品，开始<span class="hero-highlight">自助充值</span></h2>
-            <p>
-                点击进入对应项目，即可订阅对应的会员服务。
-            </p>
-        </section>
-
-        <section class="project-grid" aria-label="会员充值入口">
-            <?php foreach ($memberProjects as $memberProject): ?>
-            <?php
-                $memberUrl = trim((string)($memberProject['url'] ?? ''));
-                $memberEnabled = !empty($memberProject['enabled']) && $memberUrl !== '';
-                $tag = $memberEnabled ? 'a' : 'article';
-                $href = $memberEnabled ? ' href="' . htmlspecialchars($memberUrl) . '"' : '';
-                $target = $memberEnabled && preg_match('#^https?://#i', $memberUrl) ? ' target="_blank" rel="noopener"' : '';
-                $fallback = strtoupper(substr((string)$memberProject['key'], 0, 2));
-            ?>
-            <<?php echo $tag . $href . $target; ?> class="project-card member-card<?php echo $memberEnabled ? '' : ' is-disabled'; ?>">
-                <article class="project-inner">
-                    <?php if (!empty($memberProject['icon'])): ?>
-                    <img src="<?php echo htmlspecialchars($memberProject['icon']); ?>" alt="<?php echo htmlspecialchars($memberProject['name']); ?>" class="project-icon">
-                    <?php else: ?>
-                    <div class="project-icon project-fallback"><?php echo htmlspecialchars($fallback); ?></div>
-                    <?php endif; ?>
-                    <div class="project-copy">
-                        <h2 class="project-title"><?php echo htmlspecialchars($memberProject['name']); ?></h2>
-                        <p class="project-desc"><?php echo htmlspecialchars($memberProject['description']); ?></p>
-                        <div class="project-action">
-                            <span class="project-action-text"><?php echo htmlspecialchars($memberProject['action_text']); ?> <span>&gt;</span></span>
-                            <span class="member-badge<?php echo $memberEnabled ? '' : ' soon'; ?>"><?php echo htmlspecialchars($memberProject['badge']); ?></span>
-                        </div>
-                    </div>
-                </article>
-            </<?php echo $tag; ?>>
-            <?php endforeach; ?>
-            <article class="project-card member-card is-disabled">
-                <div class="project-inner">
-                    <div class="project-icon project-fallback">+</div>
-                    <div class="project-copy">
-                        <h2 class="project-title">更多会员</h2>
-                        <p class="project-desc">更多产品陆续上线</p>
-                        <div class="project-action">
-                            <span class="project-action-text">敬请期待 <span>&gt;</span></span>
-                            <span class="member-badge soon">持续接入</span>
-                        </div>
-                    </div>
-                </div>
-            </article>
-        </section>
-
-        <?php if (!$projects): ?>
-        <section class="empty">
-            当前还没有启用的验证项目。
-        </section>
-        <?php endif; ?>
-
-        <?php smsRenderSiteFooter(); ?>
+      <section class="wrap section" id="links">
+        <h2>快速入口</h2>
+        <div class="links">
+          <a class="link-item" href="https://sms.88fk.net/codex/"><span>Codex / ChatGPT</span><span class="arrow">→</span></a>
+          <a class="link-item" href="https://sms.88fk.net/google/"><span>Google 验证</span><span class="arrow">→</span></a>
+          <a class="link-item" href="https://sms.88fk.net/telegram/"><span>Telegram 验证</span><span class="arrow">→</span></a>
+          <a class="link-item" href="https://sms.88fk.net/claude/"><span>Claude 验证</span><span class="arrow">→</span></a>
+          <a class="link-item" href="https://sms.88fk.net/cursor/"><span>Cursor 验证</span><span class="arrow">→</span></a>
+          <a class="link-item" href="https://sms.88fk.net/netmarble/"><span>Netmarble 验证</span><span class="arrow">→</span></a>
+          <a class="link-item" href="https://code.88fk.net/"><span>逃离塔科夫</span><span class="arrow">→</span></a>
+          <a class="link-item" href="https://sms.88fk.net/blog/"><span>教程博客</span><span class="arrow">→</span></a>
+        </div>
+      </section>
     </main>
+
+    <footer class="wrap foot">
+      <div>本页面是 88FK 手机验证平台的静态导航页，用于 GitHub Pages 引流。正式购买、卡密验证、号码获取与短信接收请进入主站操作。</div>
+      <div>主站：<a href="https://sms.88fk.net/">https://sms.88fk.net/</a></div>
+    </footer>
+  </div>
 </body>
 </html>
